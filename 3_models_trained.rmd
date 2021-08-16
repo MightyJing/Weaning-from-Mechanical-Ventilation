@@ -1,0 +1,133 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library("data.table")
+library("tidyverse")
+library("ggplot2")
+library("lubridate")
+library("janitor")#for row to colname
+library("zoo")
+library("imputeTS") # for na imputation
+library("epitools") # for as.hour
+library("readxl")
+library("writexl")
+library("randomForest")
+library("caret")
+library("ggrepel")
+
+eg.theme=function () { 
+     theme(panel.border=element_rect(fill=NA),#black border
+       panel.background = element_blank(),#no background
+       strip.background = element_rect(colour="black"),#black border for strip
+        panel.grid.major = element_blank(),#no gridlines
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12),#axis text size
+        aspect.ratio = 1)#square plot
+        
+}
+
+# You need to set this
+root = "C:/Users/YoYo/Desktop/Project 2/"
+
+# Relative directory
+data_in = paste0(root, "data_in/")
+
+data_out = paste0(root, "data_out/")
+
+plot = paste0(root, "plot/")
+
+```
+
+
+# Data for regression，
+```{r}
+
+library("smotefamily")
+input3_1 = input3 %>% ungroup() %>% select(!EncntrID) %>% smotefamily::SMOTE(target = input3$okwean, K = 3)
+
+input4 = rbind(input3 %>% ungroup() %>% select(!EncntrID) %>% mutate(class = 404), input3_1[["syn_data"]]) %>% select(!class)
+
+table(input4$okwean)
+
+names(input4) <- make.names(names(input4))
+
+set.seed(1000)
+
+index = createDataPartition(input4$okwean, p=0.7, list=FALSE)
+
+train = input4[index,] 
+test = input4[-index,]
+
+x_train = as.matrix(train %>% select(!c(okwean)))
+y_train = train$okwean
+
+x_test = as.matrix(test %>% select(!c(okwean)))
+y_test = test$okwean
+
+
+# test = input4[which(input4$EncntrID %notin% train$EncntrID),]
+# 
+# x_test = test %>% select(!c("EncntrID","okwean"))
+# y_test = test %>% select(c("okwean"))
+
+```
+
+1.Logistic regression
+```{r}
+
+set.seed(1000)
+model_lr = glm(as.factor(okwean)~ ., data=train,family = "binomial")
+
+summary(model_lr)
+
+# a1 = coef(a) %>% as.data.frame() %>% rownames_to_column() 
+# names(a1)[5] <- "p"
+
+#a2 = a1 %>% mutate(p_adjust = p.adjust(p))
+
+test_result = predict.glm(object = model_lr,newdata = data.frame(x_test), type = "response")
+
+pred = factor(as.numeric(test_result>0.5))
+
+confusionMatrix(data = pred,reference = factor(y_test,levels = c(0,1)),positive = "1")
+
+```
+
+2.randomForest
+```{r}
+
+set.seed(1000)
+model_rf = randomForest(as.factor(okwean) ~ ., data=train, ntree=100, xtest = x_test %>% as.data.frame(),ytest = factor (y_test,levels = c(0,1)), importance=TRUE, keep.forest = TRUE)
+
+print(model_rf)
+```
+
+3.Regression Tree
+```{r}
+library("rpart")
+library("rpart.plot")
+
+set.seed(1000)
+
+model_rt <- rpart(
+  formula = okwean ~ .,
+  data    = train,
+  method  = "anova",
+  control = list(cp = 0, xval = 1)
+  )
+
+
+c = summary(model_rt)
+rpart.plot(model_rt)
+
+
+pred = predict(model_rt, test, type = 'vector')
+
+pred1 = factor(as.numeric(pred>0.5))
+
+confusionMatrix(data = pred1,reference = factor(y_test,levels = c(0,1)),positive = "1")
+
+```

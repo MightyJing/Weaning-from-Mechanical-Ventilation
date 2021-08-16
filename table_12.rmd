@@ -1,0 +1,46 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+table 2
+```{r}
+table1 = event_ICUA2 %>% select(!c("timeh"))%>% group_by(EncntrID) %>% mutate_all(funs(replace_na(.,"999999")))
+
+length(unique(table1$EncntrID))
+
+table1[,1:ncol(table1)] = sapply(table1[,1:ncol(table1)],as.numeric)
+
+table1[table1 == 999999] <- NA
+
+colnames(a)[6]
+
+a = summary.data.frame(table1) %>% as.data.frame() %>% select(!1) %>% dplyr::filter(!grepl("EncntrID",Var2)) %>% dplyr::filter(!grepl("uni_id",Var2)) %>% separate(col = Freq, sep = ":",into = c("Var3","value")) %>% dplyr::filter(!grepl("1st",Var3) & !grepl("3rd",Var3)) %>% pivot_wider(names_from = Var3, values_from = value)  
+
+names(a) <- make.names(names(a))
+
+write_xlsx(a, path = paste0(data_out, "cc.xlsx"))
+
+event_ICUA2 %>% dplyr::filter(is.na(get("Ventilator Mode")))
+
+```
+table 2
+```{r}
+table2 = event_ICUA4 %>% select(!c("timeh"))%>% group_by(EncntrID) %>% mutate_all(funs(replace_na(.,"999999")))
+
+length(unique(table2$EncntrID))
+
+table2[,1:ncol(table2)] = sapply(table2[,1:ncol(table2)],as.numeric)
+
+table2[table2 == 999999] <- NA
+
+a = summary.data.frame(table2) %>% as.data.frame() %>% select(!1) %>% dplyr::filter(!grepl("EncntrID",Var2)) %>% dplyr::filter(!grepl("uni_id",Var2)) %>% separate(col = Freq, sep = ":",into = c("Var3","value")) %>% dplyr::filter(!grepl("1st",Var3) & !grepl("3rd",Var3)) %>% pivot_wider(names_from = Var3, values_from = value)  
+
+names(a) <- make.names(names(a))
+
+write_xlsx(a, path = paste0(data_out, "cc_locf.xlsx"))
+
+event_ICUA4 %>% dplyr::filter(is.na(get("Ventilator Mode")))
+
+```
+

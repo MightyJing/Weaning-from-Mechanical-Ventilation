@@ -1,0 +1,120 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library("data.table")
+library("tidyverse")
+library("ggplot2")
+library("lubridate")
+library("janitor")#for row to colname
+library("zoo")
+library("imputeTS") # for na imputation
+library("epitools") # for as.hour
+library("readxl")
+library("writexl")
+library("randomForest")
+library("caret")
+library("ggrepel")
+
+eg.theme=function () { 
+     theme(panel.border=element_rect(fill=NA),#black border
+       panel.background = element_blank(),#no background
+       strip.background = element_rect(colour="black"),#black border for strip
+        panel.grid.major = element_blank(),#no gridlines
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12),#axis text size
+        aspect.ratio = 1)#square plot
+        
+}
+
+# You need to set this
+root = "C:/Users/YoYo/Desktop/Project 2/"
+
+# Relative directory
+data_in = paste0(root, "data_in/")
+
+data_out = paste0(root, "data_out/")
+
+plot = paste0(root, "plot/")
+
+```
+
+
+To find the transient point of oxygen device and impute the rest of missing values
+```{r}
+
+type3 = read_excel(path =  paste0(data_out,"label_files/vent_sub1_san.xlsx"))
+
+type3_1 = type3 %>% mutate(uni_dev = paste0(get("Oxygen device"),"_",get("Ventilator Mode"))) %>% select(wlabel,uni_dev)
+
+event_ICUA5 = event_ICUA4 %>% mutate("Ventilator Mode" = tolower(get("Ventilator Mode")),uni_dev = paste0(get("Oxygen device"),"_",get("Ventilator Mode"))) %>% left_join(type3_1,by = "uni_dev")
+
+
+event_ICUA5 = event_ICUA5 %>% dplyr::filter(wlabel != 3) %>% drop_na(wlabel)
+
+length(unique(event_ICUA5$EncntrID))
+
+sum(is.na(event_ICUA5$wlabel))
+
+type_vec_1 = c("2-1","1-0","0-0")
+
+event_ICUA6_1 = event_ICUA5 %>% 
+  group_by(EncntrID) %>% mutate(wlabel = as.integer(wlabel)) %>% 
+  mutate(wchange.type = paste0(lag(wlabel),"-",wlabel)) %>% 
+  dplyr::filter(wchange.type %in% type_vec_1) %>% 
+  mutate(ind1 = 
+    case_when(
+      wchange.type == "2-1"&lead(wchange.type) == "1-0" & lead(wchange.type, n = 2) == "0-0"~ TRUE,
+      wchange.type == "1-0"&lead(wchange.type) == "0-0"&lag(wchange.type) == "2-1" ~ TRUE,
+      wchange.type == "0-0" ~ TRUE,
+      TRUE ~ FALSE)) %>% dplyr::filter(ind1 == TRUE) %>% 
+  mutate( dur1 = 
+    case_when(
+      wchange.type == "2-1" ~ TRUE,
+      TRUE ~ FALSE), dur2 = cumsum(dur1)) %>% 
+  group_by(EncntrID,dur2) %>% 
+  mutate(subd12 =  as.integer(difftime(last(timeh),nth(timeh,n = 2), units = "hours"))) 
+
+event_ICUA6_2 = event_ICUA5 %>% 
+  group_by(EncntrID) %>% mutate(wlabel = as.integer(wlabel)) %>% 
+  mutate(wchange.type = paste0(lag(wlabel),"-",wlabel)) %>% 
+  dplyr::filter(!grepl("0",wchange.type)) %>% 
+  dplyr::filter(wchange.type == "2-1" | wchange.type == "1-1" | wchange.type == "1-2") %>% 
+  mutate(dur1 = case_when(
+      wchange.type == "2-1" ~ TRUE,
+      TRUE ~ FALSE), dur2 = cumsum(dur1)) %>% 
+  group_by(EncntrID,dur2) %>% 
+  mutate(subd12 = 24) # This 24h has no actual clinical meaning. 24 will be classified as failure in the next lines 
+
+event_ICUA6 = rbind(event_ICUA6_1, event_ICUA6_2)
+
+length(unique(event_ICUA6$EncntrID))
+
+event_ICUA7 = event_ICUA6 %>% group_by(EncntrID) %>% mutate(okwean = case_when(subd12 >= 48 ~ 1, TRUE ~ 0)) 
+
+switch_file = event_ICUA7[c( which(event_ICUA7$wchange.type == "2-1")),] 
+
+
+
+
+library(imputeTS)
+input1 = switch_file %>% 
+  select(!c("timeh","uni_id","Oxygen device","Ventilator Mode","uni_dev","wlabel","wchange.type","ind1","dur1","dur2","subd12")) %>% group_by(EncntrID) %>% mutate_all(funs(replace_na(.,"999999")))
+
+input1[,1:ncol(input1)] = sapply(input1[,1:ncol(input1)],as.numeric)
+
+input1[input1 == 999999] <- NA
+
+input1_ori = input1 %>% drop_na()
+
+input1 = na_mean(input1)
+
+
+
+
+input3 = input1 %>% mutate(pf_ratio = get("pO2 level POC blood")/get("FiO2 - Delivered")*100, ven_ratio = (minute.ventilation * 1000 * PaCO2)/(weight * 100 * 5)) %>% mutate(pf_ratio = round(pf_ratio,1),ven_ratio = round(ven_ratio,1))
+
+
+```

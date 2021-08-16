@@ -1,0 +1,104 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+library("data.table")
+library("tidyverse")
+library("ggplot2")
+library("lubridate")
+library("janitor")#for row to colname
+library("zoo")
+library("imputeTS") # for na imputation
+library("epitools") # for as.hour
+library("readxl")
+library("writexl")
+library("randomForest")
+library("caret")
+library("ggrepel")
+
+eg.theme=function () { 
+     theme(panel.border=element_rect(fill=NA),#black border
+       panel.background = element_blank(),#no background
+       strip.background = element_rect(colour="black"),#black border for strip
+        panel.grid.major = element_blank(),#no gridlines
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12),#axis text size
+        aspect.ratio = 1)#square plot
+        
+}
+
+# You need to set this
+root = "C:/Users/YoYo/Desktop/Project 2/"
+
+# Relative directory
+data_in = paste0(root, "data_in/")
+
+data_out = paste0(root, "data_out/")
+
+plot = paste0(root, "plot/")
+```
+
+Last obeservation carried forward for 24h
+```{r}
+
+event_ICUA2 = event_ICUA1 %>% select(-c(EVENT_CD,EVENT_END_DT_TM))%>% pivot_wider(names_from = "Display", values_from = "RESULT_VAL") %>% select(-c("Fibrinogen level blood")) %>% rename(cprotein ="C-reactive protein level blood") %>% mutate(cprotein = case_when(cprotein == "<5.0"~"4.9",TRUE ~ cprotein)) %>% rename( "C-reactive protein level blood"=cprotein)
+
+event_ICUA2 = event_ICUA2 %>% group_by(EncntrID) %>% drop_na(timeh) %>% arrange(EncntrID,timeh) %>% mutate(uni_id = paste0(EncntrID,"_",timeh)) %>% left_join(Enc_bi, by = "EncntrID")
+
+a = summary(event_ICUA2)
+
+seqA = match(groupA_vecm,colnames(event_ICUA2))
+
+
+ICU_long = event_ICUA2 %>% distinct(uni_id, .keep_all = TRUE) %>% pivot_longer(cols = seqA, names_to = "Display")
+
+
+list_ICUA = list()
+i = 0
+for (pt in unique(ICU_long$EncntrID)) {
+  
+  temp_df = ICU_long %>% dplyr::filter(EncntrID == pt) 
+  
+  ls_temp = list()
+  
+  for (display in unique(temp_df$Display)) {
+    
+      if (display == "weight")
+        {temp_df_sub = temp_df %>% dplyr::filter(Display == display) %>% arrange(timeh) %>% fill(value, .direction = "downup") 
+      ls_temp[[display]] = temp_df_sub}else{
+      temp_df_sub = temp_df %>% 
+        dplyr::filter(Display == display) %>% 
+        arrange(timeh)%>% 
+        mutate(not_na = case_when(is.na(value) == TRUE ~ 0, TRUE ~ 1)) %>% 
+        mutate(group_step1 = case_when(not_na == 1 ~ uni_id,TRUE ~ NA_character_))
+    
+      temp_df_sub1 = temp_df_sub %>% 
+                    fill(group_step1,.direction = "down") %>% 
+                    group_by(group_step1) %>%
+                    mutate(group_time = case_when(not_na == 1~timeh, TRUE ~ NA_POSIXct_)) %>%                                fill(group_time,.direction = "down")%>% 
+                    mutate(sub_time = difftime(timeh,group_time,units = "hours"))
+          
+          
+      temp_df_sub2 = temp_df_sub1 %>% group_by(EncntrID) %>% dplyr::filter(sub_time <= 24 ) %>%                               fill(value,.direction = c("down"))
+  
+      temp_df_sub3 = temp_df_sub1 %>% rows_update(temp_df_sub2, by = "uni_id") %>% ungroup() %>%                              select(!c("not_na","group_step1","group_time","sub_time"))
+    
+      ls_temp[[display]] = temp_df_sub3
+    
+  }
+  }
+   df_temp = bind_rows(ls_temp)
+   
+   list_ICUA[[pt]] = df_temp
+    
+   i = i + 1
+   print(paste0("We have imputated data for ",i," patients"))
+}
+
+event_ICUA3 = bind_rows(list_ICUA)
+
+event_ICUA4 = event_ICUA3 %>% pivot_wider(names_from = "Display", values_from = "value")
+
+```
+

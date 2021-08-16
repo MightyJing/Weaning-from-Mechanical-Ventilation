@@ -1,0 +1,145 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library("data.table")
+library("tidyverse")
+library("ggplot2")
+library("lubridate")
+library("janitor")#for row to colname
+library("zoo")
+library("imputeTS") # for na imputation
+library("epitools") # for as.hour
+library("readxl")
+library("writexl")
+library("randomForest")
+library("caret")
+library("ggrepel")
+
+eg.theme=function () { 
+     theme(panel.border=element_rect(fill=NA),#black border
+       panel.background = element_blank(),#no background
+       strip.background = element_rect(colour="black"),#black border for strip
+        panel.grid.major = element_blank(),#no gridlines
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12),#axis text size
+        aspect.ratio = 1)#square plot
+        
+}
+
+# You need to set this
+root = "C:/Users/YoYo/Desktop/Project 2/"
+
+# Relative directory
+data_in = paste0(root, "data_in/")
+
+data_out = paste0(root, "data_out/")
+
+plot = paste0(root, "plot/")
+
+```
+
+Figure 1
+```{r}
+varnamels = variable.names(train)
+varnamels = varnamels[varnamels != "okwean"]
+
+pdf = data.frame()
+
+train_f = train %>% mutate(okwean = as.factor(okwean))
+
+
+for(i in varnamels){
+
+  set.seed(1000)  
+
+  a = paste0("okwean ~ ", i)
+  
+  model_lr1 = glm(as.formula(a), data=train_f,family = "binomial")
+  
+  test_result = predict.glm(object = model_lr1,newdata = data.frame(x_test), type = "response")
+  
+  pred = factor(as.numeric(test_result>0.5))
+  
+  b = confusionMatrix(data = pred, reference = factor(y_test,levels = c(0,1)), positive = "1")
+  
+  newdf = data.frame(var = i, Accuracy = b[["overall"]][["Accuracy"]])
+  
+  pdf = rbind(pdf,newdf)
+}
+
+a1 = coef(summary(model_lr))[,4][-1]
+#
+pdf1 = pdf %>%cbind(p.value = a1) %>%  mutate(pa = p.adjust(p.value, method = "BH")) %>% dplyr::filter(p.value <= 0.05)
+
+g1 = ggplot(pdf1,aes(x =  Accuracy,y = -log10(pa)))+
+  geom_point()+
+  geom_text_repel(data=pdf1, aes(x =  Accuracy, y = -log10(pa),label=var),force=15, show.legend =F, max.overlaps = 20)+
+  geom_hline(yintercept=mean(pdf1$pa), linetype="dashed", color="blue")+ 
+  
+  geom_vline(xintercept=mean(pdf1$Accuracy), linetype="dashed", color="blue")+
+  geom_text(aes(x=round(mean(pdf1$Accuracy),2), label=as.character(round(mean(pdf1$Accuracy),2)), y=20), colour="red")+
+  ylab("Significance(-log(p adjusted))")+
+  eg.theme()
+
+print(g1)
+```
+
+Figure 2
+```{r,fig.height=10}
+vc = c[["variable.importance"]] %>% as.data.frame() %>% rownames_to_column()
+names(vc) <- c("vars","importance")
+
+ggplot(data = vc, aes(x=reorder(vars, importance), y=importance)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=round(importance, 2)), color="black",hjust = 0, size=6)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        axis.text=element_text(size=18, face = "bold"),
+        axis.title.x = element_text(size=18, face="bold"),
+        axis.title.y = element_text(size=18, face="bold"))+
+  xlab("Variables")+
+  ylim(0,140)+
+  coord_flip()
+
+```
+
+
+Figure 3
+```{r}
+input1_ori = input1 %>% drop_na()
+
+input3_ori = input1_ori %>% mutate(pf_ratio = get("pO2 level POC blood")/get("FiO2 - Delivered")*100, ven_ratio = (minute.ventilation * 1000 * PaCO2)/(weight * 100 * 5)) %>% mutate(pf_ratio = round(pf_ratio,1),ven_ratio = round(ven_ratio,1))
+
+names(input3_ori) <- make.names(names(input3_ori))
+
+input4_ori = input3_ori %>% ungroup() %>% select(!c( "EncntrID"))
+
+x_test_ori = as.matrix(input4_ori %>% select(!c("okwean")))
+y_test_ori = input4_ori$okwean
+
+library("plotROC")
+
+y_lr =  predict.glm(object = model_lr,newdata = data.frame(x_test_ori), type = "response")
+
+
+
+y_rf = predict(object = model_rf,newdata = data.frame(x_test_ori), type = "prob")[,2]
+
+y_rt = predict(object = model_rt,newdata = data.frame(x_test_ori), type = "vector")
+
+
+
+df_roc = data.frame(true = y_test_ori,logistic_regression = y_lr, random_forest = y_rf, regression_tree = y_rt) 
+
+longtest <- melt_roc(df_roc, "true", c("logistic_regression", "regression_tree","random_forest")) %>% mutate(D = 1 - D, M = 1 - M)
+
+p1 = ggplot(longtest, aes(d = D, m = M, color = name)) + geom_roc(n.cuts = 0) + style_roc(xlab = "False negative fraction", ylab = "True negative fraction")
+
+p1
+
+p1 + annotate("text", x = .75, y = .25, 
+           label = paste("AUC =", round(calc_auc(p1), 2)))
+```
+

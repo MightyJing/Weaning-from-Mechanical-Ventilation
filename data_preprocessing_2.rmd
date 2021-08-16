@@ -1,0 +1,176 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library("data.table")
+library("tidyverse")
+library("ggplot2")
+library("lubridate")
+library("janitor")#for row to colname
+library("zoo")
+library("imputeTS") # for na imputation
+library("epitools") # for as.hour
+library("readxl")
+library("writexl")
+library("randomForest")
+library("caret")
+library("ggrepel")
+
+eg.theme=function () { 
+     theme(panel.border=element_rect(fill=NA),#black border
+       panel.background = element_blank(),#no background
+       strip.background = element_rect(colour="black"),#black border for strip
+        panel.grid.major = element_blank(),#no gridlines
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12),#axis text size
+        aspect.ratio = 1)#square plot
+        
+}
+
+# You need to set this
+root = "C:/Users/YoYo/Desktop/Project 2/"
+
+# Relative directory
+data_in = paste0(root, "data_in/")
+
+data_out = paste0(root, "data_out/")
+
+plot = paste0(root, "plot/")
+```
+
+Displays unification
+```{r}
+
+event_ICU1 = event_file_ICU
+
+unique(event_ICU1$Display)
+
+
+event_ICU2 = event_ICU1 %>% mutate(Display = case_when(Display == "FiO2 (AN)"~"FiO2 - Delivered",
+                                                       Display == "SpO2 (AN)"~"SpO2",
+                                                       Display == "PEEP (AN)"~"PEEP",
+                                                       TRUE ~ Display))
+
+unique(event_ICU2$Display)
+
+event_ICU3 = event_ICU2 %>% mutate(timeh = round_date(EVENT_END_DT_TM,"hour")) %>% group_by(EncntrID,Display) %>% distinct(timeh,.keep_all =TRUE)
+
+length(unique(event_ICU3$EncntrID))
+```
+
+
+Display variety based on avaiability
+```{r}
+
+groupA = unique(event_ICU3$Display)
+
+ptls = unique(event_ICU3$EncntrID)
+
+groupA_df = data.frame()
+
+for (enc in ptls) {
+  
+    df1 = event_ICU3 %>% dplyr::filter(EncntrID == enc)
+    
+    dvar1 = unique(df1$Display)
+    
+    df2 = data.frame(var = dvar1, code = 1)
+
+    df_A = data.frame(var = groupA)
+    
+    df_temp = df_A %>% left_join(df2, by = "var") 
+    
+    df_temp[c("code")][is.na(df_temp[c("code")])] <- 0
+    
+    df_temp_t1 = df_temp %>% mutate(code = as.character(code))
+    
+    temp_vec = df_temp_t1$code
+    
+    acode = paste(temp_vec,collapse = "")
+    
+    df_temp_t2 = df_temp_t1  %>% t %>% as.data.frame()%>% row_to_names(row_number = 1) %>% mutate(acode = acode)%>% mutate(encntrID = enc)
+
+    groupA_df = rbind(groupA_df, df_temp_t2)
+
+}
+
+
+
+groupA_df[,1:25] <- sapply(groupA_df[,1:25],as.numeric)
+
+groupA_df_uni = groupA_df %>% distinct(acode,.keep_all = TRUE)
+
+pattern_df = data.frame()
+
+for (i in 1:nrow(groupA_df_uni)) {
+  
+  temp_row_i = groupA_df_uni[i,] %>% select(c(1:25)) %>% t
+  
+  temp_ij = data.frame()
+  
+  a = 0
+  b = 0
+  
+  
+  for (j in 1:nrow(groupA_df)){
+    
+    temp_row_j = groupA_df[j,] %>% select(c(1:25)) %>% t
+    
+    temp_ij = cbind(temp_row_i,temp_row_j) %>% as.data.frame()
+    
+    colnames(temp_ij) <- c("rowi","rowj")
+    
+    temp_ij = temp_ij %>% mutate(sub = rowi - rowj)
+    
+    if(nrow(temp_ij[temp_ij$sub > 0,]) != 0){b = b + 1}
+    else{a = a + 1}
+  
+}
+ temp_idf = data.frame(enc = groupA_df_uni$encntrID[i], acode = groupA_df_uni$acode[i],a = a,b = b )
+
+ pattern_df = rbind(pattern_df,temp_idf)
+ 
+}
+
+pattern_df1 = pattern_df %>% rename(encntrID = enc)%>% left_join(groupA_df, by = "encntrID") %>% dplyr::filter(get("FiO2 - Delivered") == 1, get("pO2 level POC blood") == 1,get("Oxygen device") == 1,get("Respiratory Rate") == 1)
+
+library("writexl")
+write_xlsx(pattern_df1, path = paste0(data_out,"pattern_df11.xlsx"), col_names = TRUE)
+
+
+acode_m = "1111001001111111100111000111"
+
+ls_m = strsplit(acode_m,"")[[1]] %>% as.integer()
+
+boo_m = as.logical(ls_m)
+
+groupA_vec2 = groupA [boo_m] 
+
+groupA_vecm = groupA_vec2[groupA_vec2 != "Fibrinogen level blood"]
+
+`%notin%` <- Negate(`%in%`)
+
+event_ICUA = data.frame()
+
+for (enc in ptls) {
+  
+    df1 = event_ICU3 %>% dplyr::filter(EncntrID == enc)
+    
+    dvar1 = unique(df1$Display)
+    
+    if (FALSE %notin% unique(groupA_vecm %in% dvar1) ){
+      
+      event_ICUA = rbind(event_ICUA, df1)
+      
+    }
+}
+
+
+event_ICUA1 = event_ICUA %>% dplyr::filter(Display %in% groupA_vec2)
+
+
+```
+```
+

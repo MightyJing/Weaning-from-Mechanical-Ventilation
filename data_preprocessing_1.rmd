@@ -1,0 +1,135 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Special notation for Ventilation mode and dexamethasone (No need to run this)
+```{r}
+dexamels = unique(event_file2 %>% dplyr::filter(Display == "dexamethasone") %>% select(RESULT_VAL))
+
+dexamedf = data.frame(dexame = as.character(),value = as.numeric())
+
+for (dexame in dexamels$RESULT_VAL) {
+  
+  print(paste0("value for Display", dexame))
+  value = readline()
+  
+  dexamedf = rbind(dexamedf,data.frame(dexame = dexame,value = value))
+  
+}
+
+write.csv(dexamedf, file = paste0(data_out,"dexamedf.csv"), row.names = FALSE)
+
+##OXygen
+devls = unique(event_file2 %>% dplyr::filter(Display == "Oxygen device") %>% select(RESULT_VAL))
+
+devdf = data.frame(dev = as.character(),value = as.numeric())
+
+for (dev in devls$RESULT_VAL) {
+  
+  print(paste0("value for Display ", dev))
+  value = readline()
+  
+  devdf = rbind(devdf,data.frame(dev = dev,value = value))
+  
+}
+
+
+```
+
+Valid range of event_file1 (No need to run this)
+```{r message=FALSE, warning=FALSE}
+
+
+print(paste0("This chunk may cause irresiversible trouble, press S to exit( press Y to proceed)"))
+a = readline()
+try(if(a != "Y") stop("Safe move, my friend"))
+    
+Displayls = unique(event_file2$Display)
+
+Displaydf = data.frame(Display = as.character(),min = as.numeric(),max = as.numeric())
+
+for (Display in Displayls) {
+  
+  print(paste0("min for Display", Display))
+  min = readline()
+  
+  print(paste0("max for Display", Display))
+  max = readline()
+  
+  Displaydf = rbind(Displaydf,data.frame(Display = Display,min = min,max = max))
+  
+}
+
+write.csv(Displaydf, file = paste0(data_out,"Displaydf_new.csv"), row.names = FALSE)
+```
+
+Valid range selection
+```{r message=FALSE, warning=FALSE}
+
+event_file1$RESULT_VAL[which(event_file1$EncntrID == 56861372 & event_file1$Display == "FiO2 (AN)")]<- 40
+
+temp_b = event_file1$RESULT_VAL[which(event_file1$Display == "Inspiratory to Expiratory Ratio")]
+
+event_file1$RESULT_VAL[which(event_file1$Display == "Inspiratory to Expiratory Ratio")] <- as.character(sapply(strsplit(temp_b, ":"), function(x) as.numeric(x[1])/as.numeric(x[2])))
+
+Displaydf1 = read.csv(file = paste0(data_out,"/label_files/Displaydf.csv")) %>% select(c(1,2,3))
+
+Displaydf2 = Displaydf1 %>% drop_na()
+
+###
+
+eventname = unique(event_file1$Display)
+
+event_vals = list()
+
+for (display in eventname) {
+  
+  temp = event_file1 %>% dplyr::filter(Display == display)
+  
+  if(display %in% Displaydf2$Display){
+    
+  minmax = Displaydf2 %>% dplyr::filter(Display == display) 
+  min = minmax[1,2]
+  max = minmax[1,3]
+
+  
+  temp = temp %>% transform(RESULT_VAL = as.numeric(RESULT_VAL)) %>% dplyr::filter(RESULT_VAL >= min, RESULT_VAL <= max)%>% transform(RESULT_VAL = as.character(RESULT_VAL))
+  
+  } else if (display == "dexamethasone") {
+    
+    dexdf = read.csv(file = paste0(data_out,"/label_files/dexamedf.csv")) %>% select(c(1,2)) %>% mutate(ind1 =                 as.numeric(dexame)) %>% dplyr::filter(is.na(ind1)) %>% transform( value = as.character(value)) %>%            drop_na(value) %>% select(-c("ind1")) %>% rename(RESULT_VAL = dexame)
+    
+    temp = left_join(temp, dexdf, by = c("RESULT_VAL")) %>% 
+            mutate(Values = ifelse(is.na(value), RESULT_VAL, value)) %>% 
+            select(-c("RESULT_VAL","value")) %>% 
+            rename(RESULT_VAL = Values) %>% 
+            transform(RESULT_VAL = as.character(RESULT_VAL))
+      
+    temp$RESULT_VAL[temp$RESULT_VAL==""]<-NA
+    temp = temp %>% drop_na(RESULT_VAL)
+  }
+    else if (display == "Oxygen device"){
+    
+    devdf = read.csv(file = paste0(data_out, "/label_files/devdf.csv")) %>% drop_na(classification) %>% select(c(1,2)) %>% rename(RESULT_VAL = dev)
+    temp = left_join(temp, devdf, by = c("RESULT_VAL")) %>% 
+            select(-c("RESULT_VAL")) %>% 
+            rename(RESULT_VAL = classification) %>% 
+            transform(RESULT_VAL = as.character(RESULT_VAL))
+    }
+  
+  
+  event_vals[[display]]=temp
+  print(display)
+  
+}
+
+event_valid_df = bind_rows(event_vals)
+
+```
+
+Valid time range
+```{r}
+event_file_ICU = event_valid_df %>% dplyr::filter(EVENT_END_DT_TM >= as.POSIXct("2019-11-06T00:00:00Z"),EVENT_END_DT_TM <= as.POSIXct("2021-06-10T23:59:59Z"))
+```
+

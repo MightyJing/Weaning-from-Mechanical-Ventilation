@@ -1,0 +1,99 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Gobal environment and directory settings
+```{r}
+library("data.table")
+library("tidyverse")
+library("ggplot2")
+
+eg.theme=function () { 
+     theme(panel.border=element_rect(fill=NA),#black border
+       panel.background = element_blank(),#no background
+       strip.background = element_rect(colour="black"),#black border for strip
+        panel.grid.major = element_blank(),#no gridlines
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12),#axis text size
+        aspect.ratio = 1)#square plot
+        
+}
+
+# Need to set this
+root = "C:/Users/YoYo/Desktop/Project 2/"
+
+# Relative directory
+data_in = paste0(root, "data_in/")
+
+data_out = paste0(root, "data_out/")
+
+plot = paste0(root, "plot/")
+```
+
+
+load the data 
+```{r}
+patient_file = read.delim(file = paste0(data_in,"Patients.txt"),sep = ",")[1:934,] 
+
+
+patient_file = patient_file %>% 
+               mutate(AdmissionDateTime = substr(AdmissionDateTime, 1,19)) %>% 
+               mutate(AdmissionDateTime = as.POSIXct(AdmissionDateTime)) %>% 
+               mutate(DischargeDateTime = substr(DischargeDateTime, 1,19)) %>% 
+               #mutate(DischargeDateTime = as.POSIXct(DischargeDateTime)) %>% 
+               mutate(AdmissionICU = substr(AdmissionICU, 1,19)) %>% 
+               mutate(AdmissionICU = as.POSIXct(AdmissionICU)) %>% 
+               mutate(DischargeICU = substr(DischargeICU, 1,19)) %>% 
+               mutate(DischargeICU = as.POSIXct(DischargeICU))
+
+names(patient_file)[1] <- "EncntrID"
+
+
+patient_file = patient_file %>% dplyr::filter(DischargeDestinationDescription != "NULL", DischargeDestinationDescription != "Court")
+
+
+peep_event = read.delim(file = paste0(data_in,"PEEP.txt"),sep = ",")
+
+names(peep_event)[1] <- "EncntrID"
+
+
+peep_df = data.frame(EncntrID = peep_event$EncntrID,EVENT_CD = 41462217, Display = "PEEP", EVENT_END_DT_TM = peep_event$PeepDate,RESULT_VAL = peep_event$PEEP) %>% mutate(EVENT_END_DT_TM = as.character(EVENT_END_DT_TM))%>% dplyr::filter(EVENT_END_DT_TM != "",EVENT_END_DT_TM != "NULL")
+
+
+mv_event = read.delim(file = paste0(data_in,"JY_MinuteVolume.txt"),sep = ",")
+
+names(mv_event)[1] <- "EncntrID"
+
+mv_df = data.frame(EncntrID = mv_event$EncntrID,EVENT_CD = 41462508, Display = "minute.ventilation", EVENT_END_DT_TM = mv_event$MinuteVolumeDate,RESULT_VAL = mv_event$MinuteVolume)  %>% dplyr::filter(EVENT_END_DT_TM != "",EVENT_END_DT_TM != "NULL")
+
+
+paco2_event = read.delim(file = paste0(data_in,"JY_EndTidalCO2.txt"),sep = ",")
+
+names(paco2_event)[1] <- "EncntrID"
+
+paco2_df = data.frame(EncntrID = paco2_event$EncntrID,EVENT_CD = 12685223, Display = "PaCO2", EVENT_END_DT_TM = paco2_event$EndTidalCO2Date,RESULT_VAL = paco2_event$EndTidalCO2) %>% dplyr::filter(EVENT_END_DT_TM != "",EVENT_END_DT_TM != "NULL")
+
+
+weight_event = read.delim(file = paste0(data_in,"JY_Weight.txt"),sep = ",")
+
+names(weight_event)[1] <- "EncntrID"
+
+weight_df = data.frame(EncntrID = weight_event$EncntrID,EVENT_CD = 10000002, Display = "weight", EVENT_END_DT_TM = weight_event$WeightDate,RESULT_VAL = weight_event$Weight) %>% dplyr::filter(EVENT_END_DT_TM != "",EVENT_END_DT_TM != "NULL")
+ 
+
+event_file = read.delim(file = paste0(data_in,"Events new.txt"),sep = ",")
+names(event_file)[1] <- "EncntrID"
+
+event_file = rbind(event_file,peep_df,mv_df,weight_df,paco2_df)
+
+
+event_file1 = event_file %>%
+                    drop_na(EVENT_CD) %>% 
+                    mutate(EVENT_END_DT_TM = substr(EVENT_END_DT_TM, 1,19)) %>% 
+                    mutate(EVENT_END_DT_TM = as.POSIXct(EVENT_END_DT_TM))
+
+
+```
+```
+
